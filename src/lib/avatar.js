@@ -48,6 +48,10 @@ export function composeAvatar(face, jersey = { color: '#e63946', alt: '#9d1b2a' 
   c.height = size
   const ctx = c.getContext('2d')
 
+  // Background fill (clean dark corners for JPEG export + UI blending)
+  ctx.fillStyle = '#0a0e1a'
+  ctx.fillRect(0, 0, size, size)
+
   // --- Layer 1: jersey / bust ---
   const grad = ctx.createLinearGradient(0, size * 0.5, 0, size)
   grad.addColorStop(0, jersey.color)

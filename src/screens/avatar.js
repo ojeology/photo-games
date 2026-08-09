@@ -102,20 +102,22 @@ export function renderAvatar(container, nav) {
           <canvas id="crop-canvas"></canvas>
         </div>
         <div class="crop-side">
-          <div class="preview-box">
-            <canvas id="preview-canvas" width="220" height="220"></canvas>
-            <p class="preview-label">Your athlete</p>
+          <div class="crop-side-scroll">
+            <div class="preview-box">
+              <canvas id="preview-canvas" width="180" height="180"></canvas>
+              <p class="preview-label">Your athlete</p>
+            </div>
+            <div class="swatches" id="swatches"></div>
+            <div class="control-row">
+              <label>Zoom</label>
+              <input type="range" id="zoom" min="0.4" max="3.5" step="0.01" value="1" />
+            </div>
+            <div class="control-row">
+              <label>Rotate</label>
+              <input type="range" id="rotate" min="-45" max="45" step="1" value="0" />
+            </div>
+            <p class="crop-hint">Drag to move · pinch or scroll to zoom</p>
           </div>
-          <div class="swatches" id="swatches"></div>
-          <div class="control-row">
-            <label>Zoom</label>
-            <input type="range" id="zoom" min="0.4" max="3.5" step="0.01" value="1" />
-          </div>
-          <div class="control-row">
-            <label>Rotate</label>
-            <input type="range" id="rotate" min="-45" max="45" step="1" value="0" />
-          </div>
-          <p class="crop-hint">Drag to move · pinch or scroll to zoom</p>
           <div class="crop-actions">
             <button class="btn btn-ghost" id="btn-back">Back</button>
             <button class="btn btn-primary" id="btn-confirm">Looks good</button>
@@ -299,14 +301,25 @@ export function renderAvatar(container, nav) {
 
     body.querySelector('#btn-back').onclick = () => showUpload()
     body.querySelector('#btn-confirm').onclick = () => {
-      const face = cropFace(
-        img,
-        { panX: transform.panX, panY: transform.panY, scale: fullScale(), rotation: transform.rotation },
-        OVAL
-      )
-      const avatar = composeAvatar(face, JERSEYS[jerseyIdx])
-      store.setAvatar(avatar.toDataURL('image/png'))
-      nav.goto('ready')
+      const btn = body.querySelector('#btn-confirm')
+      try {
+        btn.disabled = true
+        btn.textContent = 'Saving…'
+        const face = cropFace(
+          img,
+          { panX: transform.panX, panY: transform.panY, scale: fullScale(), rotation: transform.rotation },
+          OVAL
+        )
+        const avatar = composeAvatar(face, JERSEYS[jerseyIdx])
+        const dataUrl = avatar.toDataURL('image/jpeg', 0.9)
+        store.setAvatar(dataUrl)
+        nav.goto('ready')
+      } catch (err) {
+        console.error('Avatar save failed:', err)
+        btn.disabled = false
+        btn.textContent = 'Looks good'
+        alert('Something went wrong saving your avatar: ' + (err && err.message ? err.message : err) + '. Please try again or use a different photo.')
+      }
     }
 
     draw()
