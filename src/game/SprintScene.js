@@ -61,7 +61,27 @@ export class SprintScene extends Phaser.Scene {
     this.events.once('shutdown', () => this.scale.off('resize', this.handleResize, this))
     this.events.once('destroy', () => this.scale.off('resize', this.handleResize, this))
 
-    this.loadAvatarThenStart()
+    // surface any creation error visibly instead of a blank track
+    try {
+      this.loadAvatarThenStart()
+    } catch (err) {
+      console.error('Race create error:', err)
+      this.showFatalError(err)
+    }
+  }
+
+  showFatalError(err) {
+    const t = this.add
+      .text(this.W / 2, this.H / 2, 'Could not load athlete:\n' + (err && err.message ? err.message : err) + '\n\nTry re-creating your avatar.', {
+        fontFamily: 'Arial',
+        fontSize: '22px',
+        color: '#ff6b6b',
+        align: 'center',
+        wordWrap: { width: this.W - 80 },
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(200)
   }
 
   // ---------- derived layout values ----------
@@ -584,11 +604,16 @@ export class SprintScene extends Phaser.Scene {
     const skinHex = store.getSkin() || '#d2a27a'
 
     const build = () => {
-      this.athlete = new Athlete(this, START_X, WORLD_GROUND_Y, 'head', jersey, skinHex)
-      this.athlete.setPose('marks')
-      this.cameras.main.scrollX = 0
-      this.cameras.main.scrollY = this.scrollY
-      this.startCountdown()
+      try {
+        this.athlete = new Athlete(this, START_X, WORLD_GROUND_Y, 'head', jersey, skinHex)
+        this.athlete.setPose('marks')
+        this.cameras.main.scrollX = 0
+        this.cameras.main.scrollY = this.scrollY
+        this.startCountdown()
+      } catch (err) {
+        console.error('Athlete build error:', err)
+        this.showFatalError(err)
+      }
     }
 
     const headUrl = store.getHead()
