@@ -22,8 +22,12 @@ export function renderWelcome(container, nav) {
   `
 
   // Both create & join need an athlete first — for now both route to the avatar builder.
-  container.querySelector('#btn-create').onclick = () => nav.goto('avatar')
-  container.querySelector('#btn-join').onclick = () => nav.goto('avatar')
+  // This first tap is also our user-gesture moment to go fullscreen + lock landscape
+  // for the whole app, so every screen runs immersive, not just the arena.
+  const enter = () => window.__photoGames.enterFullscreen()
+
+  container.querySelector('#btn-create').onclick = () => enter().finally(() => nav.goto('avatar'))
+  container.querySelector('#btn-join').onclick = () => enter().finally(() => nav.goto('avatar'))
   const ready = container.querySelector('#btn-ready')
-  if (ready) ready.onclick = () => nav.goto('ready')
+  if (ready) ready.onclick = () => enter().finally(() => nav.goto('ready'))
 }

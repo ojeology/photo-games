@@ -74,6 +74,7 @@ export class SprintScene extends Phaser.Scene {
   makeTextures() {
     if (!this.textures.exists('crowd')) this.makeCrowdTexture()
     if (!this.textures.exists('pad')) this.makePadTexture()
+    if (!this.textures.exists('foot')) this.makeFootTexture()
   }
 
   makeCrowdTexture() {
@@ -117,6 +118,36 @@ export class SprintScene extends Phaser.Scene {
     ctx.lineWidth = 2
     ctx.stroke()
     this.textures.addCanvas('pad', c)
+  }
+
+  // A stylized footprint (sole + toes), pointing up. Flipped horizontally
+  // for the right pad. Replaces the old fixed "L"/"R" letters for a cleaner,
+  // Playman-style control feel.
+  makeFootTexture() {
+    const s = 200
+    const c = document.createElement('canvas')
+    c.width = s
+    c.height = s
+    const ctx = c.getContext('2d')
+    ctx.fillStyle = 'rgba(255,255,255,0.55)'
+    // sole (main pad) — lower 60% of the icon
+    ctx.beginPath()
+    ctx.ellipse(s * 0.5, s * 0.66, s * 0.26, s * 0.3, 0, 0, Math.PI * 2)
+    ctx.fill()
+    // toes — five circles across the top
+    const toes = [
+      { x: 0.32, y: 0.3, r: 0.075 },
+      { x: 0.43, y: 0.24, r: 0.07 },
+      { x: 0.54, y: 0.22, r: 0.072 },
+      { x: 0.65, y: 0.25, r: 0.066 },
+      { x: 0.74, y: 0.32, r: 0.058 },
+    ]
+    toes.forEach((t) => {
+      ctx.beginPath()
+      ctx.arc(s * t.x, s * t.y, s * t.r, 0, Math.PI * 2)
+      ctx.fill()
+    })
+    this.textures.addCanvas('foot', c)
   }
 
   // ---------- world-space track (built once) ----------
@@ -320,52 +351,89 @@ export class SprintScene extends Phaser.Scene {
       .setInteractive({ useHandCursor: true })
     s.push(leftPad, rightPad)
 
-    const lLbl = this.add
-      .text(leftPad.x, leftPad.y, 'L', {
-        fontFamily: 'Arial',
-        fontSize: Math.round(60 * f) + 'px',
-        fontStyle: '900',
-        color: 'rgba(255,255,255,0.55)',
-      })
-      .setOrigin(0.5)
+    // footprint icons (no fixed letters) — right one mirrored
+    const footSize = ps * 0.62
+    const leftFoot = this.add
+      .image(leftPad.x, leftPad.y, 'foot')
+      .setDisplaySize(footSize, footSize)
       .setScrollFactor(0)
       .setDepth(101)
-    const rLbl = this.add
-      .text(rightPad.x, rightPad.y, 'R', {
-        fontFamily: 'Arial',
-        fontSize: Math.round(60 * f) + 'px',
-        fontStyle: '900',
-        color: 'rgba(255,255,255,0.55)',
-      })
-      .setOrigin(0.5)
+      .setAlpha(0.5)
+    const rightFoot = this.add
+      .image(rightPad.x, rightPad.y, 'foot')
+      .setDisplaySize(footSize, footSize)
       .setScrollFactor(0)
+      .setFlipX(true)
       .setDepth(101)
-    s.push(lLbl, rLbl)
+      .setAlpha(0.5)
+    s.push(leftFoot, rightFoot)
 
-    // press feedback: gold tint + squash + ripple ring
-    const press = (pad, foot) => {
+    // soft glow halos behind each pad — show which foot is "expected" next
+    const glowL = this.add
+      .circle(leftPad.x, leftPad.y, ps * 0.56, 0xffd23f, 0)
+      .setScrollFactor(0)
+      .setDepth(99)
+    const glowR = this.add
+      .circle(rightPad.x, rightPad.y, ps * 0.56, 0xffd23f, 0)
+      .setScrollFactor(0)
+      .setDepth(99)
+    s.push(glowL, glowR)
+    this.glowL = glowL
+    this.glowR = glowR
+
+    // gentle breathing pulse to invite tapping (before the gun)
+    this.padPulse = this.time.addEvent({
+      delay: 900,
+      loop: true,
+      callback: () => {
+        if (this.raceActive) return
+        this.tweens.add({ targets: leftFoot, scale: { from: 0.58, to: 0.66 }, duration: 450, yoyo: true })
+        this.tweens.add({ targets: rightFoot, scale: { from: 0.58, to: 0.66 }, duration: 450, yoyo: true })
+      },
+    })
+
+    const press = (pad, foot, footImg, glow) => {
       resumeAudio()
       pad.setScale(0.9)
       pad.setTint(0xffd23f)
+      footImg.setAlpha(0.95)
       this.flashRipple(pad.x, pad.y, ps)
+      // flash the glow on the pressed foot
+      glow.alpha = 0.55
+      this.tweens.add({ targets: glow, alpha: 0, duration: 360 })
       this.onTap(foot)
     }
-    const release = (pad) => {
+    const release = (pad, footImg) => {
       pad.setScale(1)
       pad.clearTint()
+      footImg.setAlpha(0.5)
     }
-    leftPad.on('pointerdown', () => press(leftPad, 'L'))
-    leftPad.on('pointerup', () => release(leftPad))
-    leftPad.on('pointerout', () => release(leftPad))
-    rightPad.on('pointerdown', () => press(rightPad, 'R'))
-    rightPad.on('pointerup', () => release(rightPad))
-    rightPad.on('pointerout', () => release(rightPad))
+    leftPad.on('pointerdown', () => press(leftPad, 'L', leftFoot, glowL))
+    leftPad.on('pointerup', () => release(leftPad, leftFoot))
+    leftPad.on('pointerout', () => release(leftPad, leftFoot))
+    rightPad.on('pointerdown', () => press(rightPad, 'R', rightFoot, glowR))
+    rightPad.on('pointerup', () => release(rightPad, rightFoot))
+    rightPad.on('pointerout', () => release(rightPad, rightFoot))
 
     this.leftPad = leftPad
     this.rightPad = rightPad
+    this.leftFoot = leftFoot
+    this.rightFoot = rightFoot
 
     // live stride indicator (shows your L/R rhythm)
     this.buildStrideIndicator(s, f)
+  }
+
+  // Highlight the pad the player should tap next (dynamic guidance, no fixed letters).
+  // Called whenever lastFoot changes.
+  updateNextFootHint() {
+    if (!this.raceActive || !this.glowL) return
+    // after a left tap, right is expected (and vice versa); before any tap, both subtle
+    const expectR = this.lastFoot === 'L'
+    const expectL = this.lastFoot === 'R'
+    this.tweens.killTweensOf([this.glowL, this.glowR])
+    this.glowL.alpha = expectL ? 0.32 : 0
+    this.glowR.alpha = expectR ? 0.32 : 0
   }
 
   flashRipple(x, y, size) {
@@ -564,8 +632,11 @@ export class SprintScene extends Phaser.Scene {
     this.tapCount = 0
     this.strideLog = []
     if (this.athlete) this.athlete.setPose('run')
+    // brighten foot icons now the race is live
+    if (this.leftFoot) this.leftFoot.setAlpha(0.7)
+    if (this.rightFoot) this.rightFoot.setAlpha(0.7)
     this.addTimer(550, () => this.countdownText.setVisible(false))
-    this.addTimer(450, () => this.showHint('TAP  L  ↔  R  TO  RUN'))
+    this.addTimer(450, () => this.showHint('ALTERNATE  THE  PADS  TO  SPRINT'))
   }
 
   // "how to move" hint, shown right after the gun
@@ -621,6 +692,7 @@ export class SprintScene extends Phaser.Scene {
       this.athlete.applyStride()
       tick()
       this.logStride(foot, true)
+      this.updateNextFootHint()
       return
     }
     if (foot !== this.lastFoot) {
@@ -628,11 +700,13 @@ export class SprintScene extends Phaser.Scene {
       this.athlete.applyStride()
       tick()
       this.logStride(foot, true)
+      this.updateNextFootHint()
     } else {
       this.athlete.applyStumble()
       this.lastFoot = foot
       stumbleSnd()
       this.logStride(foot, false)
+      this.updateNextFootHint()
     }
   }
 

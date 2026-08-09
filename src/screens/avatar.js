@@ -312,7 +312,7 @@ export function renderAvatar(container, nav) {
         )
         const avatar = composeAvatar(face, JERSEYS[jerseyIdx])
         const head = makeHead(face)
-        store.setAvatar(avatar.toDataURL('image/jpeg', 0.9))
+        store.setAvatar(avatar.toDataURL('image/jpeg', 0.95))
         store.setHead(head.toDataURL('image/png'))
         store.setJersey(JSON.stringify(JERSEYS[jerseyIdx]))
         nav.goto('ready')

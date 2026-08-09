@@ -78,10 +78,10 @@ export function composeAvatar(face, jersey = { color: '#e63946', alt: '#9d1b2a' 
   ctx.stroke()
 
   // --- Layer 2: face ---
-  const faceW = size * 0.5
-  const faceH = size * 0.625
+  const faceW = size * 0.52
+  const faceH = size * 0.65
   const fx = size / 2
-  const fy = size * 0.34
+  const fy = size * 0.35
   ctx.save()
   ctx.beginPath()
   ctx.ellipse(fx, fy, faceW / 2, faceH / 2, 0, 0, Math.PI * 2)
@@ -89,18 +89,30 @@ export function composeAvatar(face, jersey = { color: '#e63946', alt: '#9d1b2a' 
   ctx.drawImage(face, fx - faceW / 2, fy - faceH / 2, faceW, faceH)
   ctx.restore()
 
-  // depth shadow on the face edge
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)'
-  ctx.lineWidth = size * 0.01
+  // soft inner shadow so the face edges blend (not a hard paste)
+  const inner = ctx.createRadialGradient(fx, fy, faceW * 0.3, fx, fy, faceW * 0.62)
+  inner.addColorStop(0, 'rgba(0,0,0,0)')
+  inner.addColorStop(1, 'rgba(0,0,0,0.35)')
+  ctx.save()
+  ctx.beginPath()
+  ctx.ellipse(fx, fy, faceW / 2, faceH / 2, 0, 0, Math.PI * 2)
+  ctx.clip()
+  ctx.fillStyle = inner
+  ctx.fillRect(fx - faceW / 2, fy - faceH / 2, faceW, faceH)
+  ctx.restore()
+
+  // depth outline on the face edge
+  ctx.strokeStyle = 'rgba(0,0,0,0.4)'
+  ctx.lineWidth = size * 0.008
   ctx.beginPath()
   ctx.ellipse(fx, fy, faceW / 2, faceH / 2, 0, 0, Math.PI * 2)
   ctx.stroke()
 
   // --- Layer 3: gold ring (future: accessory hooks above this) ---
   ctx.strokeStyle = '#ffd23f'
-  ctx.lineWidth = size * 0.02
+  ctx.lineWidth = size * 0.018
   ctx.beginPath()
-  ctx.ellipse(fx, fy, faceW / 2 + size * 0.012, faceH / 2 + size * 0.012, 0, 0, Math.PI * 2)
+  ctx.ellipse(fx, fy, faceW / 2 + size * 0.01, faceH / 2 + size * 0.01, 0, 0, Math.PI * 2)
   ctx.stroke()
 
   return c
@@ -109,30 +121,38 @@ export function composeAvatar(face, jersey = { color: '#e63946', alt: '#9d1b2a' 
 /**
  * Make a compact circular head texture from the cropped face — used by the
  * race so the player's face sits on the running athlete's head.
- * Cover-fits the (oval) face into a circle, preserving aspect.
+ * COVER-fits the face into the circle (fills it, crops overflow) so the face
+ * fills the whole head with no empty gaps inside the ring.
  * @param {HTMLImageElement|HTMLCanvasElement} face cropped face
- * @returns {HTMLCanvasElement} 200x200 circular head
+ * @returns {HTMLCanvasElement} 300x300 circular head
  */
 export function makeHead(face) {
-  const s = 200
+  const s = 300
   const c = document.createElement('canvas')
   c.width = s
   c.height = s
   const ctx = c.getContext('2d')
+
+  // cover-fit: scale so the face covers the square, crop overflow
+  const ar = face.width / face.height
+  let dw, dh
+  if (ar > 1) {
+    // wider than tall → scale by height, crop sides
+    dh = s
+    dw = s * ar
+  } else {
+    // taller than wide → scale by width, crop top/bottom (keeps face features)
+    dw = s
+    dh = s / ar
+  }
   ctx.save()
   ctx.beginPath()
   ctx.arc(s / 2, s / 2, s / 2, 0, Math.PI * 2)
   ctx.clip()
-  const ar = face.width / face.height
-  let dw, dh
-  if (ar > 1) {
-    dw = s
-    dh = s / ar
-  } else {
-    dh = s
-    dw = s * ar
-  }
-  ctx.drawImage(face, (s - dw) / 2, (s - dh) / 2, dw, dh)
+  // nudge the crop so the face (not forehead) is centered
+  const offsetY = -(dh - s) * 0.42
+  ctx.drawImage(face, (s - dw) / 2, (s - dh) / 2 + offsetY, dw, dh)
   ctx.restore()
+
   return c
 }
