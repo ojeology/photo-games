@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { MAX_SPEED } from './config.js'
+import { MAX_SPEED, STRIDE_IMPULSE } from './config.js'
 
 // A side-view athlete: circular face (the player's photo) on a procedural
 // running body. Legs/arms swing with speed; body bobs + leans.
@@ -78,17 +78,17 @@ export class Athlete extends Phaser.GameObjects.Container {
   }
 
   applyStride() {
-    this.speed = Math.min(MAX_SPEED, this.speed + 46)
+    this.speed = Math.min(MAX_SPEED, this.speed + STRIDE_IMPULSE)
   }
 
   applyStumble() {
-    this.speed *= 0.5
-    this.stumbleLock = 320
+    this.speed *= 0.55
+    this.stumbleLock = 250
     if (this.scene && this.scene.tweens) {
       this.scene.tweens.add({
         targets: this,
-        angle: this.angle + 7,
-        duration: 80,
+        angle: this.angle + 9,
+        duration: 90,
         yoyo: true,
       })
     }

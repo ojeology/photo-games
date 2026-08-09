@@ -325,7 +325,7 @@ export class SprintScene extends Phaser.Scene {
         fontFamily: 'Arial',
         fontSize: Math.round(60 * f) + 'px',
         fontStyle: '900',
-        color: 'rgba(255,255,255,0.5)',
+        color: 'rgba(255,255,255,0.55)',
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
@@ -335,19 +335,25 @@ export class SprintScene extends Phaser.Scene {
         fontFamily: 'Arial',
         fontSize: Math.round(60 * f) + 'px',
         fontStyle: '900',
-        color: 'rgba(255,255,255,0.5)',
+        color: 'rgba(255,255,255,0.55)',
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(101)
     s.push(lLbl, rLbl)
 
+    // press feedback: gold tint + squash + ripple ring
     const press = (pad, foot) => {
       resumeAudio()
-      pad.setScale(0.92)
+      pad.setScale(0.9)
+      pad.setTint(0xffd23f)
+      this.flashRipple(pad.x, pad.y, ps)
       this.onTap(foot)
     }
-    const release = (pad) => pad.setScale(1)
+    const release = (pad) => {
+      pad.setScale(1)
+      pad.clearTint()
+    }
     leftPad.on('pointerdown', () => press(leftPad, 'L'))
     leftPad.on('pointerup', () => release(leftPad))
     leftPad.on('pointerout', () => release(leftPad))
@@ -357,12 +363,73 @@ export class SprintScene extends Phaser.Scene {
 
     this.leftPad = leftPad
     this.rightPad = rightPad
+
+    // live stride indicator (shows your L/R rhythm)
+    this.buildStrideIndicator(s, f)
+  }
+
+  flashRipple(x, y, size) {
+    const ring = this.add
+      .circle(x, y, size * 0.18, 0xffd23f, 0.5)
+      .setScrollFactor(0)
+      .setDepth(102)
+    this.tweens.add({
+      targets: ring,
+      radius: size * 0.62,
+      alpha: 0,
+      duration: 360,
+      ease: 'Cubic.easeOut',
+      onComplete: () => ring.destroy(),
+    })
+  }
+
+  // small row of dots showing the last few strides (L gold / R cyan)
+  buildStrideIndicator(s, f) {
+    const W = this.W,
+      H = this.H
+    const cy = H - 20 - Math.round(Math.min(W, H) * 0.34) - 16
+    this.strideDots = []
+    const cx = W / 2
+    const n = 8
+    const gap = Math.round(16 * f)
+    const dotR = Math.round(6 * f)
+    for (let i = 0; i < n; i++) {
+      const d = this.add
+        .circle(cx - ((n - 1) * gap) / 2 + i * gap, cy, dotR, 0xffffff, 0.16)
+        .setScrollFactor(0)
+        .setDepth(60)
+      s.push(d)
+      this.strideDots.push(d)
+    }
+    this.strideLog = []
+  }
+
+  logStride(foot, good) {
+    if (!this.strideDots) return
+    this.strideLog.push({ foot, good })
+    if (this.strideLog.length > this.strideDots.length) this.strideLog.shift()
+    this.strideDots.forEach((d, i) => {
+      const entry = this.strideLog[i]
+      if (!entry) {
+        d.setFillStyle(0xffffff, 0.16)
+      } else if (!entry.good) {
+        d.setFillStyle(0xe63946, 0.85) // red = stumble
+      } else if (entry.foot === 'L') {
+        d.setFillStyle(0xffd23f, 0.9) // gold = left
+      } else {
+        d.setFillStyle(0x00e5ff, 0.9) // cyan = right
+      }
+    })
   }
 
   destroyStatic() {
     if (this.staticObjs) {
       this.staticObjs.forEach((o) => o && o.destroy && o.destroy())
       this.staticObjs = []
+    }
+    if (this.hintText) {
+      this.hintText.destroy()
+      this.hintText = null
     }
   }
 
@@ -466,6 +533,14 @@ export class SprintScene extends Phaser.Scene {
     this.clearTimers()
     this.raceActive = false
     this.lastFoot = null
+    this.tapCount = 0
+    if (this.hintText) {
+      this.hintText.destroy()
+      this.hintText = null
+    }
+    // reset stride dots
+    if (this.strideDots) this.strideDots.forEach((d) => d.setFillStyle(0xffffff, 0.16))
+    this.strideLog = []
     if (this.athlete) {
       this.athlete.speed = 0
       this.athlete.x = START_X
@@ -486,8 +561,35 @@ export class SprintScene extends Phaser.Scene {
     bang()
     this.raceActive = true
     this.startTime = this.time.now
+    this.tapCount = 0
+    this.strideLog = []
     if (this.athlete) this.athlete.setPose('run')
     this.addTimer(550, () => this.countdownText.setVisible(false))
+    this.addTimer(450, () => this.showHint('TAP  L  ↔  R  TO  RUN'))
+  }
+
+  // "how to move" hint, shown right after the gun
+  showHint(msg) {
+    if (this.hintText) this.hintText.destroy()
+    const f = this.f || 1
+    this.hintText = this.add
+      .text(this.W / 2, this.H * 0.56, msg, {
+        fontFamily: 'Arial',
+        fontSize: Math.round(34 * f) + 'px',
+        fontStyle: '900',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 5,
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(140)
+      .setAlpha(0)
+    this.tweens.add({
+      targets: this.hintText,
+      alpha: 0.95,
+      duration: 220,
+    })
   }
 
   falseStart() {
@@ -507,20 +609,30 @@ export class SprintScene extends Phaser.Scene {
       return
     }
     if (this.athlete.stumbleLock > 0) return
+
+    // hide the "how to move" hint after the first few taps
+    this.tapCount = (this.tapCount || 0) + 1
+    if (this.tapCount === 4 && this.hintText) {
+      this.tweens.add({ targets: this.hintText, alpha: 0, duration: 400 })
+    }
+
     if (this.lastFoot === null) {
       this.lastFoot = foot
       this.athlete.applyStride()
       tick()
+      this.logStride(foot, true)
       return
     }
     if (foot !== this.lastFoot) {
       this.lastFoot = foot
       this.athlete.applyStride()
       tick()
+      this.logStride(foot, true)
     } else {
       this.athlete.applyStumble()
       this.lastFoot = foot
       stumbleSnd()
+      this.logStride(foot, false)
     }
   }
 
