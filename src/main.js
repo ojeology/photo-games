@@ -1,6 +1,7 @@
 import { renderWelcome } from './screens/welcome.js'
 import { renderAvatar } from './screens/avatar.js'
 import { renderReady } from './screens/ready.js'
+import { renderWalkthrough } from './screens/walkthrough.js'
 import { renderRace } from './screens/race.js'
 
 const app = document.getElementById('app')
@@ -9,6 +10,7 @@ const screens = {
   welcome: renderWelcome,
   avatar: renderAvatar,
   ready: renderReady,
+  walkthrough: renderWalkthrough,
   race: renderRace,
 }
 

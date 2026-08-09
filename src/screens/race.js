@@ -1,7 +1,11 @@
 import Phaser from 'phaser'
 import { SprintScene } from '../game/SprintScene.js'
+import { HurdlesScene } from '../game/HurdlesScene.js'
 
-export function renderRace(container, nav) {
+export function renderRace(container, nav, params = {}) {
+  const event = params.event === 'hurdles' ? 'hurdles' : 'sprint'
+  const SceneClass = event === 'hurdles' ? HurdlesScene : SprintScene
+
   container.innerHTML = `
     <div class="screen race-screen">
       <div id="game-root"></div>
@@ -17,22 +21,21 @@ export function renderRace(container, nav) {
     parent: root,
     backgroundColor: '#0a0e1a',
     scale: {
-      // RESIZE = canvas fills the parent exactly, no letterbox bars.
       mode: Phaser.Scale.RESIZE,
       parent: root,
       width: root.clientWidth || window.innerWidth,
       height: root.clientHeight || window.innerHeight,
     },
-    scene: [SprintScene],
+    scene: [SceneClass],
   })
 
-  function showResults(time) {
+  function showResults(time, label) {
     overlay.classList.remove('hidden')
     overlay.innerHTML = `
       <div class="result-card">
         <h2>FINISH</h2>
         <div class="result-time">${time.toFixed(2)}s</div>
-        <p class="result-sub">100m sprint · solo practice</p>
+        <p class="result-sub">${label || '100m Sprint'} · solo practice</p>
         <div class="result-actions">
           <button class="btn btn-primary" id="btn-again">Race again</button>
           <button class="btn btn-ghost" id="btn-menu">Menu</button>
@@ -41,14 +44,10 @@ export function renderRace(container, nav) {
     `
     overlay.querySelector('#btn-again').onclick = () => {
       overlay.classList.add('hidden')
-      game.scene.getScene('sprint').scene.restart()
+      game.scene.getScene(event).scene.restart()
     }
     overlay.querySelector('#btn-menu').onclick = () => {
-      try {
-        game.destroy(true)
-      } catch (e) {
-        /* ignore */
-      }
+      try { game.destroy(true) } catch (e) {}
       container.__cleanup = null
       setTimeout(() => nav.goto('ready'), 60)
     }
@@ -57,10 +56,6 @@ export function renderRace(container, nav) {
   game.registry.set('onFinish', showResults)
 
   container.__cleanup = () => {
-    try {
-      game.destroy(true)
-    } catch (e) {
-      /* ignore */
-    }
+    try { game.destroy(true) } catch (e) {}
   }
 }

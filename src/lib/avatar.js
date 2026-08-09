@@ -1,15 +1,29 @@
 // Avatar compositing utilities.
 // cropFace(): cut an oval face out of a source image given a transform.
-// composeAvatar(): layer the cropped face onto a sleek athlete bust (layered sprite).
+// sampleSkinTone(): auto-detect skin tone from the face (so the drawn body
+//   matches the player's real skin — key to looking realistic, not pasted).
+// renderHead(): draw a feathered head (skin base + face fading at the rim).
+// makeHead(): compact circular head texture for the runner.
+// composeAvatar(): full athlete bust (shoulders, neck, jersey, feathered face).
+
+/* ---- color helpers ---- */
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
+
+function rgbToHex(r, g, b) {
+  return '#' + [r, g, b].map((v) => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0')).join('')
+}
+
+function hexToRgb(hex) {
+  if (typeof hex === 'number') {
+    return { r: (hex >> 16) & 255, g: (hex >> 8) & 255, b: hex & 255 }
+  }
+  const h = hex.replace('#', '')
+  const v = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+  return { r: parseInt(v.slice(0, 2), 16), g: parseInt(v.slice(2, 4), 16), b: parseInt(v.slice(4, 6), 16) }
+}
 
 /**
  * Cut an oval crop out of `img`.
- * @param {HTMLImageElement|HTMLCanvasElement} img source photo
- * @param {{panX:number,panY:number,scale:number,rotation:number}} t transform
- *        (scale = full scale incl. base fit-cover; pan in source-canvas px;
- *        rotation in radians). Same transform used by the live crop canvas.
- * @param {{rx:number,ry:number}} oval radii
- * @returns {HTMLCanvasElement} the cropped face, sized rx*2 x ry*2
  */
 export function cropFace(img, t, oval) {
   const w = Math.round(oval.rx * 2)
@@ -34,125 +48,196 @@ export function cropFace(img, t, oval) {
 }
 
 /**
- * Compose the final athlete avatar: jersey bust + cropped face + gold ring.
- * Built as distinct layers so accessories (headbands, shades, team colors)
- * can be added later without a rewrite.
- * @param {HTMLImageElement|HTMLCanvasElement} face cropped face (aspect ~0.8)
- * @param {{color:string,alt:string}} jersey team colors
- * @returns {HTMLCanvasElement} 600x600 avatar
+ * Auto-detect a skin tone from the cropped face by sampling the cheek region.
+ * Returns {r,g,b,hex}. Falls back to a medium tone if detection fails.
+ * @param {HTMLImageElement|HTMLCanvasElement} face
  */
-export function composeAvatar(face, jersey = { color: '#e63946', alt: '#9d1b2a' }) {
+export function sampleSkinTone(face) {
+  const w = face.width || face.naturalWidth
+  const h = face.height || face.naturalHeight
+  if (!w || !h) return { r: 210, g: 162, b: 122, hex: '#d2a27a' }
+
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = h
+  const ctx = c.getContext('2d')
+  try {
+    ctx.drawImage(face, 0, 0, w, h)
+  } catch (e) {
+    return { r: 210, g: 162, b: 122, hex: '#d2a27a' }
+  }
+
+  let data
+  try {
+    data = ctx.getImageData(0, 0, w, h).data
+  } catch (e) {
+    return { r: 210, g: 162, b: 122, hex: '#d2a27a' }
+  }
+
+  // sample the cheek band (lower-center of the face, below eyes/above chin)
+  let rs = 0, gs = 0, bs = 0, n = 0
+  const x0 = Math.floor(w * 0.32), x1 = Math.floor(w * 0.68)
+  const y0 = Math.floor(h * 0.52), y1 = Math.floor(h * 0.74)
+  for (let y = y0; y < y1; y += 2) {
+    for (let x = x0; x < x1; x += 2) {
+      const i = (y * w + x) * 4
+      const r = data[i], g = data[i + 1], b = data[i + 2]
+      const mx = Math.max(r, g, b), mn = Math.min(r, g, b)
+      // plausible skin pixel heuristic
+      if (r > 95 && g > 40 && b > 20 && r > g && r > b && (r - g) > 12 && (mx - mn) > 15 && r < 255) {
+        rs += r; gs += g; bs += b; n++
+      }
+    }
+  }
+  if (n < 8) return { r: 210, g: 162, b: 122, hex: '#d2a27a' }
+
+  let r = clamp(rs / n, 130, 248)
+  let g = clamp(gs / n, 88, 215)
+  let b = clamp(bs / n, 64, 195)
+  return { r, g, b, hex: rgbToHex(r, g, b) }
+}
+
+/**
+ * Draw a feathered head onto ctx: a skin-tone base circle, the face cover-fit
+ * on top, then a radial feather so the face fades into the skin at the rim
+ * (kills the hard "sticker" edge). Shared by makeHead + composeAvatar.
+ */
+function renderHead(ctx, cx, cy, r, face, skin) {
+  const sk = typeof skin === 'string' ? hexToRgb(skin) : skin
+  const skinFill = `rgb(${sk.r},${sk.g},${sk.b})`
+
+  // 1. skin base
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(cx, cy, r, 0, Math.PI * 2)
+  ctx.fillStyle = skinFill
+  ctx.fill()
+  ctx.clip()
+
+  // 2. face, cover-fit, nudged so features (not forehead) center
+  const ar = face.width / face.height
+  let dw, dh
+  if (ar > 1) { dh = r * 2; dw = dh * ar } else { dw = r * 2; dh = dw / ar }
+  const oy = -(dh - r * 2) * 0.42
+  ctx.drawImage(face, cx - dw / 2, cy - dh / 2 + oy, dw, dh)
+
+  // 3. feather the rim -> face fades into skin base (no hard circle edge)
+  const grd = ctx.createRadialGradient(cx, cy, r * 0.55, cx, cy, r)
+  grd.addColorStop(0, `rgba(${sk.r},${sk.g},${sk.b},0)`)
+  grd.addColorStop(0.72, `rgba(${sk.r},${sk.g},${sk.b},0)`)
+  grd.addColorStop(1, `rgba(${sk.r},${sk.g},${sk.b},1)`)
+  ctx.fillStyle = grd
+  ctx.fillRect(cx - r, cy - r, r * 2, r * 2)
+  ctx.restore()
+
+  // 4. soft contact shadow under the chin (face has weight)
+  ctx.save()
+  ctx.globalAlpha = 0.22
+  ctx.fillStyle = '#000'
+  ctx.beginPath()
+  ctx.ellipse(cx, cy + r * 0.92, r * 0.6, r * 0.18, 0, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+
+  // 5. subtle rim light on top for depth
+  ctx.save()
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)'
+  ctx.lineWidth = r * 0.04
+  ctx.beginPath()
+  ctx.arc(cx, cy, r - r * 0.03, Math.PI * 1.15, Math.PI * 1.85)
+  ctx.stroke()
+  ctx.restore()
+}
+
+/**
+ * Compact circular head texture for the runner (300x300).
+ */
+export function makeHead(face, skin) {
+  const s = 300
+  const c = document.createElement('canvas')
+  c.width = s
+  c.height = s
+  const ctx = c.getContext('2d')
+  renderHead(ctx, s / 2, s / 2, s / 2 - 2, face, skin)
+  return c
+}
+
+function toNum(hex) {
+  if (typeof hex === 'number') return hex
+  const { r, g, b } = hexToRgb(hex)
+  return (r << 16) | (g << 8) | b
+}
+function shadeNum(num, amt) {
+  const { r, g, b } = hexToRgb(num)
+  const f = (v) => clamp(Math.round(v + 255 * amt), 0, 255)
+  return (f(r) << 16) | (f(g) << 8) | f(b)
+}
+
+/**
+ * Full athlete bust (600x600): jersey shoulders, neck, feathered face.
+ * Built layered so gear can hook in later.
+ */
+export function composeAvatar(face, jersey = { color: '#e63946', alt: '#9d1b2a' }, skin = '#d2a27a') {
   const size = 600
   const c = document.createElement('canvas')
   c.width = size
   c.height = size
   const ctx = c.getContext('2d')
 
-  // Background fill (clean dark corners for JPEG export + UI blending)
   ctx.fillStyle = '#0a0e1a'
   ctx.fillRect(0, 0, size, size)
 
-  // --- Layer 1: jersey / bust ---
-  const grad = ctx.createLinearGradient(0, size * 0.5, 0, size)
+  const jc = toNum(jersey.color)
+  const jcD = toNum(jersey.alt)
+  const shortsC = shadeNum(jcD, -0.1)
+
+  // --- shoulders / torso (jersey) ---
+  const torsoTop = size * 0.6
+  const grad = ctx.createLinearGradient(0, torsoTop, 0, size)
   grad.addColorStop(0, jersey.color)
   grad.addColorStop(1, jersey.alt)
   ctx.fillStyle = grad
   ctx.beginPath()
-  ctx.moveTo(size * 0.06, size)
-  ctx.lineTo(size * 0.06, size * 0.84)
-  ctx.bezierCurveTo(size * 0.06, size * 0.68, size * 0.17, size * 0.62, size * 0.33, size * 0.58)
-  ctx.lineTo(size * 0.37, size * 0.52)
-  ctx.lineTo(size * 0.63, size * 0.52)
-  ctx.lineTo(size * 0.67, size * 0.58)
-  ctx.bezierCurveTo(size * 0.83, size * 0.62, size * 0.94, size * 0.68, size * 0.94, size * 0.84)
-  ctx.lineTo(size * 0.94, size)
+  ctx.moveTo(size * 0.1, size)
+  ctx.lineTo(size * 0.12, size * 0.9)
+  ctx.bezierCurveTo(size * 0.16, size * 0.66, size * 0.3, size * 0.6, size * 0.42, size * 0.56)
+  ctx.lineTo(size * 0.46, size * 0.5)
+  ctx.lineTo(size * 0.54, size * 0.5)
+  ctx.lineTo(size * 0.58, size * 0.56)
+  ctx.bezierCurveTo(size * 0.7, size * 0.6, size * 0.84, size * 0.66, size * 0.88, size * 0.9)
+  ctx.lineTo(size * 0.9, size)
   ctx.closePath()
   ctx.fill()
 
-  // collar trim
-  ctx.strokeStyle = 'rgba(255,255,255,0.18)'
-  ctx.lineWidth = size * 0.012
+  // shorts hem
+  ctx.fillStyle = `#${shortsC.toString(16).padStart(6, '0')}`
+  ctx.fillRect(size * 0.12, size * 0.93, size * 0.76, size * 0.05)
+
+  // collar V
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)'
+  ctx.lineWidth = size * 0.014
   ctx.beginPath()
-  ctx.moveTo(size * 0.37, size * 0.52)
-  ctx.lineTo(size * 0.63, size * 0.52)
+  ctx.moveTo(size * 0.46, size * 0.5)
+  ctx.lineTo(size * 0.5, size * 0.575)
+  ctx.lineTo(size * 0.54, size * 0.5)
   ctx.stroke()
 
-  // --- Layer 2: face ---
-  const faceW = size * 0.52
-  const faceH = size * 0.65
-  const fx = size / 2
-  const fy = size * 0.35
-  ctx.save()
+  // --- neck (skin) ---
+  const sk = typeof skin === 'string' ? hexToRgb(skin) : skin
+  const neckGrad = ctx.createLinearGradient(0, size * 0.42, 0, size * 0.56)
+  neckGrad.addColorStop(0, `rgb(${clamp(sk.r + 18, 0, 255)},${clamp(sk.g + 12, 0, 255)},${clamp(sk.b + 8, 0, 255)})`)
+  neckGrad.addColorStop(1, `rgb(${sk.r},${sk.g},${sk.b})`)
+  ctx.fillStyle = neckGrad
   ctx.beginPath()
-  ctx.ellipse(fx, fy, faceW / 2, faceH / 2, 0, 0, Math.PI * 2)
-  ctx.clip()
-  ctx.drawImage(face, fx - faceW / 2, fy - faceH / 2, faceW, faceH)
-  ctx.restore()
+  ctx.moveTo(size * 0.46, size * 0.56)
+  ctx.lineTo(size * 0.46, size * 0.46)
+  ctx.quadraticCurveTo(size * 0.5, size * 0.43, size * 0.54, size * 0.46)
+  ctx.lineTo(size * 0.54, size * 0.56)
+  ctx.closePath()
+  ctx.fill()
 
-  // soft inner shadow so the face edges blend (not a hard paste)
-  const inner = ctx.createRadialGradient(fx, fy, faceW * 0.3, fx, fy, faceW * 0.62)
-  inner.addColorStop(0, 'rgba(0,0,0,0)')
-  inner.addColorStop(1, 'rgba(0,0,0,0.35)')
-  ctx.save()
-  ctx.beginPath()
-  ctx.ellipse(fx, fy, faceW / 2, faceH / 2, 0, 0, Math.PI * 2)
-  ctx.clip()
-  ctx.fillStyle = inner
-  ctx.fillRect(fx - faceW / 2, fy - faceH / 2, faceW, faceH)
-  ctx.restore()
-
-  // depth outline on the face edge
-  ctx.strokeStyle = 'rgba(0,0,0,0.4)'
-  ctx.lineWidth = size * 0.008
-  ctx.beginPath()
-  ctx.ellipse(fx, fy, faceW / 2, faceH / 2, 0, 0, Math.PI * 2)
-  ctx.stroke()
-
-  // --- Layer 3: gold ring (future: accessory hooks above this) ---
-  ctx.strokeStyle = '#ffd23f'
-  ctx.lineWidth = size * 0.018
-  ctx.beginPath()
-  ctx.ellipse(fx, fy, faceW / 2 + size * 0.01, faceH / 2 + size * 0.01, 0, 0, Math.PI * 2)
-  ctx.stroke()
-
-  return c
-}
-
-/**
- * Make a compact circular head texture from the cropped face — used by the
- * race so the player's face sits on the running athlete's head.
- * COVER-fits the face into the circle (fills it, crops overflow) so the face
- * fills the whole head with no empty gaps inside the ring.
- * @param {HTMLImageElement|HTMLCanvasElement} face cropped face
- * @returns {HTMLCanvasElement} 300x300 circular head
- */
-export function makeHead(face) {
-  const s = 300
-  const c = document.createElement('canvas')
-  c.width = s
-  c.height = s
-  const ctx = c.getContext('2d')
-
-  // cover-fit: scale so the face covers the square, crop overflow
-  const ar = face.width / face.height
-  let dw, dh
-  if (ar > 1) {
-    // wider than tall → scale by height, crop sides
-    dh = s
-    dw = s * ar
-  } else {
-    // taller than wide → scale by width, crop top/bottom (keeps face features)
-    dw = s
-    dh = s / ar
-  }
-  ctx.save()
-  ctx.beginPath()
-  ctx.arc(s / 2, s / 2, s / 2, 0, Math.PI * 2)
-  ctx.clip()
-  // nudge the crop so the face (not forehead) is centered
-  const offsetY = -(dh - s) * 0.42
-  ctx.drawImage(face, (s - dw) / 2, (s - dh) / 2 + offsetY, dw, dh)
-  ctx.restore()
+  // --- head (feathered face on skin base) ---
+  renderHead(ctx, size / 2, size * 0.32, size * 0.22, face, skin)
 
   return c
 }

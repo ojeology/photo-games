@@ -33,6 +33,8 @@ export class SprintScene extends Phaser.Scene {
     this.timers = []
     this.staticObjs = []
     this.kbDone = false
+    this.eventLabel = '100m Sprint'
+    this.hintMessage = 'ALTERNATE  THE  PADS  TO  SPRINT'
 
     this.makeTextures()
 
@@ -328,7 +330,13 @@ export class SprintScene extends Phaser.Scene {
 
     // ---- control pads ----
     this.buildPads(s, f)
+
+    // hook for event-specific controls (e.g. hurdles JUMP button)
+    if (this.buildEventControls) this.buildEventControls(s, f)
   }
+
+  // base no-op; overridden by HurdlesScene
+  buildEventControls() {}
 
   buildPads(s, f) {
     const W = this.W,
@@ -573,9 +581,10 @@ export class SprintScene extends Phaser.Scene {
       /* defaults */
     }
     this.jersey = jersey
+    const skinHex = store.getSkin() || '#d2a27a'
 
     const build = () => {
-      this.athlete = new Athlete(this, START_X, WORLD_GROUND_Y, 'head', jersey)
+      this.athlete = new Athlete(this, START_X, WORLD_GROUND_Y, 'head', jersey, skinHex)
       this.athlete.setPose('marks')
       this.cameras.main.scrollX = 0
       this.cameras.main.scrollY = this.scrollY
@@ -636,7 +645,7 @@ export class SprintScene extends Phaser.Scene {
     if (this.leftFoot) this.leftFoot.setAlpha(0.7)
     if (this.rightFoot) this.rightFoot.setAlpha(0.7)
     this.addTimer(550, () => this.countdownText.setVisible(false))
-    this.addTimer(450, () => this.showHint('ALTERNATE  THE  PADS  TO  SPRINT'))
+    this.addTimer(450, () => this.showHint(this.hintMessage))
   }
 
   // "how to move" hint, shown right after the gun
@@ -719,7 +728,7 @@ export class SprintScene extends Phaser.Scene {
     this.cameras.main.flash(380, 255, 255, 255)
     this.addTimer(720, () => {
       const cb = this.game.registry.get('onFinish')
-      if (cb) cb(this.finalTime)
+      if (cb) cb(this.finalTime, this.eventLabel)
     })
   }
 

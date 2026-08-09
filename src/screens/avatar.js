@@ -1,5 +1,5 @@
 import { store } from '../lib/store.js'
-import { cropFace, composeAvatar, makeHead } from '../lib/avatar.js'
+import { cropFace, composeAvatar, makeHead, sampleSkinTone } from '../lib/avatar.js'
 
 const JERSEYS = [
   { id: 'red', color: '#e63946', alt: '#9d1b2a' },
@@ -158,6 +158,8 @@ export function renderAvatar(container, nav) {
     rotate.value = 0
 
     const fullScale = () => baseScale * transform.scale
+    // sample skin tone once (from the default crop) so the body matches the face
+    const skin = sampleSkinTone(cropFace(img, { panX: 0, panY: 0, scale: baseScale, rotation: 0 }, OVAL))
 
     function draw() {
       const cw = canvas.width
@@ -210,7 +212,7 @@ export function renderAvatar(container, nav) {
         { panX: transform.panX, panY: transform.panY, scale: fullScale(), rotation: transform.rotation },
         OVAL
       )
-      const avatar = composeAvatar(face, JERSEYS[jerseyIdx])
+      const avatar = composeAvatar(face, JERSEYS[jerseyIdx], skin.hex)
       pctx.clearRect(0, 0, preview.width, preview.height)
       pctx.drawImage(avatar, 0, 0, preview.width, preview.height)
     }
@@ -310,11 +312,12 @@ export function renderAvatar(container, nav) {
           { panX: transform.panX, panY: transform.panY, scale: fullScale(), rotation: transform.rotation },
           OVAL
         )
-        const avatar = composeAvatar(face, JERSEYS[jerseyIdx])
-        const head = makeHead(face)
+        const avatar = composeAvatar(face, JERSEYS[jerseyIdx], skin.hex)
+        const head = makeHead(face, skin.hex)
         store.setAvatar(avatar.toDataURL('image/jpeg', 0.95))
         store.setHead(head.toDataURL('image/png'))
         store.setJersey(JSON.stringify(JERSEYS[jerseyIdx]))
+        store.setSkin(skin.hex)
         nav.goto('ready')
       } catch (err) {
         console.error('Avatar save failed:', err)
