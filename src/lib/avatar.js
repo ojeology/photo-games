@@ -105,3 +105,34 @@ export function composeAvatar(face, jersey = { color: '#e63946', alt: '#9d1b2a' 
 
   return c
 }
+
+/**
+ * Make a compact circular head texture from the cropped face — used by the
+ * race so the player's face sits on the running athlete's head.
+ * Cover-fits the (oval) face into a circle, preserving aspect.
+ * @param {HTMLImageElement|HTMLCanvasElement} face cropped face
+ * @returns {HTMLCanvasElement} 200x200 circular head
+ */
+export function makeHead(face) {
+  const s = 200
+  const c = document.createElement('canvas')
+  c.width = s
+  c.height = s
+  const ctx = c.getContext('2d')
+  ctx.save()
+  ctx.beginPath()
+  ctx.arc(s / 2, s / 2, s / 2, 0, Math.PI * 2)
+  ctx.clip()
+  const ar = face.width / face.height
+  let dw, dh
+  if (ar > 1) {
+    dw = s
+    dh = s / ar
+  } else {
+    dh = s
+    dw = s * ar
+  }
+  ctx.drawImage(face, (s - dw) / 2, (s - dh) / 2, dw, dh)
+  ctx.restore()
+  return c
+}

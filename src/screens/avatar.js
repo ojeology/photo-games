@@ -1,5 +1,5 @@
 import { store } from '../lib/store.js'
-import { cropFace, composeAvatar } from '../lib/avatar.js'
+import { cropFace, composeAvatar, makeHead } from '../lib/avatar.js'
 
 const JERSEYS = [
   { id: 'red', color: '#e63946', alt: '#9d1b2a' },
@@ -311,8 +311,10 @@ export function renderAvatar(container, nav) {
           OVAL
         )
         const avatar = composeAvatar(face, JERSEYS[jerseyIdx])
-        const dataUrl = avatar.toDataURL('image/jpeg', 0.9)
-        store.setAvatar(dataUrl)
+        const head = makeHead(face)
+        store.setAvatar(avatar.toDataURL('image/jpeg', 0.9))
+        store.setHead(head.toDataURL('image/png'))
+        store.setJersey(JSON.stringify(JERSEYS[jerseyIdx]))
         nav.goto('ready')
       } catch (err) {
         console.error('Avatar save failed:', err)
