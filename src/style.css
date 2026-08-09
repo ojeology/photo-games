@@ -52,14 +52,18 @@ html, body {
 }
 
 /* ===== Screen shell ===== */
+/* overflow-y:auto is the fullscreen safeguard: if a screen's content is
+   taller than the (short, landscape, fullscreen) viewport, it scrolls
+   instead of clipping the buttons off the bottom. */
 .screen {
   height: 100%;
   width: 100%;
   display: flex;
   flex-direction: column;
   padding: 18px 28px;
+  overflow-y: auto;
 }
-.screen-head { margin-bottom: 10px; }
+.screen-head { margin-bottom: 10px; flex: none; }
 .screen-head h2 {
   font-size: 26px;
   font-weight: 900;
@@ -108,18 +112,21 @@ html, body {
 .welcome-foot { color: var(--muted); font-size: 11px; letter-spacing: 1px; margin-top: 14px; }
 
 /* ===== Avatar: upload ===== */
+/* flex-start (not center) + scrollable so the Continue button is ALWAYS
+   reachable in short fullscreen landscape, instead of clipped off-screen. */
 .upload-state {
   flex: 1; display: flex; flex-direction: column; align-items: center;
-  justify-content: center; gap: 16px; max-width: 520px; margin: 0 auto; width: 100%;
+  justify-content: flex-start; gap: 12px; max-width: 520px; margin: 0 auto; width: 100%;
+  min-height: 0; overflow-y: auto; padding: 4px 0 10px;
 }
 .upload-zone {
   width: 100%; max-width: 440px;
   border: 2px dashed var(--line); border-radius: 16px;
-  padding: 34px 20px; text-align: center; cursor: pointer;
+  padding: 22px 18px; text-align: center; cursor: pointer;
   background: var(--panel); transition: border-color 0.15s, background 0.15s;
 }
 .upload-zone:hover, .upload-zone.has-img { border-color: var(--gold); background: var(--panel-2); }
-.upload-icon { font-size: 40px; margin-bottom: 6px; }
+.upload-icon { font-size: 36px; margin-bottom: 4px; }
 .upload-title { font-weight: 800; font-size: 18px; letter-spacing: 0.5px; }
 .upload-sub { color: var(--muted); font-size: 13px; margin-top: 4px; }
 .upload-actions { display: flex; gap: 12px; }
@@ -232,3 +239,70 @@ html, body {
 }
 .result-sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; letter-spacing: 0.5px; }
 .result-actions { display: flex; gap: 12px; justify-content: center; }
+
+/* ===== Walkthrough (first-time how-to-play) ===== */
+.tut-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 8, 16, 0.86);
+  backdrop-filter: blur(3px);
+  padding: 24px;
+}
+.tut-overlay.hidden { display: none; }
+.tut-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 26px 30px;
+  max-width: 560px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  text-align: center;
+}
+.tut-step-dots { display: flex; gap: 8px; justify-content: center; margin-bottom: 16px; }
+.tut-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+.tut-dot.active { background: var(--gold); }
+.tut-title { font-size: 24px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 10px; }
+.tut-title span { color: var(--gold); }
+.tut-body { color: var(--text); font-size: 15px; line-height: 1.5; margin-bottom: 18px; }
+.tut-body b { color: var(--gold); }
+.tut-demo {
+  display: flex; align-items: center; justify-content: center; gap: 18px;
+  margin: 0 auto 20px;
+}
+.tut-pad {
+  width: 78px; height: 78px; border-radius: 16px;
+  border: 2px solid var(--line); background: var(--panel-2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 30px; color: rgba(255,255,255,0.6);
+}
+.tut-pad.lit { border-color: var(--gold); background: rgba(255,210,63,0.18); color: var(--gold); transform: scale(1.08); }
+.tut-arrow { font-size: 26px; color: var(--muted); }
+.tut-actions { display: flex; gap: 12px; justify-content: center; }
+
+/* ===== Short landscape (fullscreen phones) — compact everything so buttons
+   are never clipped, on top of the scroll safeguard above. ===== */
+@media (max-height: 480px) {
+  .screen { padding: 12px 22px; }
+  .screen-head h2 { font-size: 21px; }
+  .welcome-screen { gap: 12px; }
+  .welcome-screen h1 { font-size: 46px; letter-spacing: 2px; }
+  .welcome-tag { font-size: 14px; }
+  .btn-lg { padding: 12px 22px; font-size: 14px; width: 240px; }
+  .upload-zone { padding: 14px 16px; }
+  .upload-icon { font-size: 26px; }
+  .upload-title { font-size: 16px; }
+  .upload-state { gap: 10px; }
+  .consent { font-size: 12px; }
+  .ready-avatar img { width: 180px; height: 180px; }
+  .ready-screen h2 { font-size: 20px; }
+  .ready-screen { gap: 12px; }
+  .tut-card { padding: 18px 22px; }
+  .tut-title { font-size: 20px; }
+  .tut-body { font-size: 13px; }
+  .tut-pad { width: 64px; height: 64px; font-size: 24px; }
+}
