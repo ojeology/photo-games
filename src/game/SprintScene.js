@@ -1,25 +1,21 @@
 import Phaser from 'phaser'
 import { Athlete } from './Athlete.js'
 import { store } from '../lib/store.js'
+import { bang, beep, tick, stumbleSnd, resumeAudio } from '../lib/audio.js'
 import {
-  bang,
-  beep,
-  tick,
-  stumbleSnd,
-  resumeAudio,
-} from '../lib/audio.js'
-import {
-  DESIGN_W,
-  DESIGN_H,
-  GROUND_Y,
+  WORLD_GROUND_Y,
   TRACK_M,
   PX_PER_M,
   START_X,
   FINISH_X,
-  ATHLETE_SCREEN_X,
   MAX_SPEED,
   FRICTION,
 } from './config.js'
+
+// Ground line sits at this fraction of the screen height (top = sky/stands,
+// bottom = track). 0.80 leaves room for the run-up below the athlete.
+const GROUND_FRAC = 0.8
+const WORLD_W = FINISH_X + 220 // total scrollable world width
 
 export class SprintScene extends Phaser.Scene {
   constructor() {
@@ -35,22 +31,43 @@ export class SprintScene extends Phaser.Scene {
     this.finalTime = 0
     this.lastFoot = null
     this.timers = []
+    this.staticObjs = []
+    this.kbDone = false
 
     this.makeTextures()
-    this.buildBackground()
+
+    // real viewport
+    const gs = this.scale.gameSize
+    this.W = gs.width
+    this.H = gs.height
+
+    // world-space layer (built once; tall enough for any screen height)
     this.buildTrack()
     this.buildFinishLine()
-    this.buildHUD()
-    this.buildControls()
+
+    // shadow (world-space, follows athlete)
+    this.shadow = this.add
+      .ellipse(START_X, WORLD_GROUND_Y + 4, 84, 18, 0x000000, 0.28)
+      .setDepth(2)
+
+    // screen-space layer (rebuilt on resize)
+    this.buildStatic()
     this.buildCountdown()
+    this.addKeyboard()
 
-    // shadow under the athlete (stays on the ground, doesn't bob)
-    this.shadow = this.add.ellipse(START_X, GROUND_Y + 4, 84, 18, 0x000000, 0.28)
-    this.shadow.setDepth(2)
-
-    this.cameras.main.setBounds(0, 0, FINISH_X + 220, DESIGN_H)
+    this.scale.on('resize', this.handleResize, this)
+    this.events.once('shutdown', () => this.scale.off('resize', this.handleResize, this))
+    this.events.once('destroy', () => this.scale.off('resize', this.handleResize, this))
 
     this.loadAvatarThenStart()
+  }
+
+  // ---------- derived layout values ----------
+  layoutValues() {
+    this.groundScreenY = Math.round(this.H * GROUND_FRAC)
+    this.athleteScreenX = Phaser.Math.Clamp(Math.round(this.W * 0.3), 240, 420)
+    this.scrollY = WORLD_GROUND_Y - this.groundScreenY
+    this.f = Phaser.Math.Clamp(this.H / 720, 0.62, 1.3) // font/UI scale
   }
 
   // ---------- textures ----------
@@ -60,8 +77,8 @@ export class SprintScene extends Phaser.Scene {
   }
 
   makeCrowdTexture() {
-    const w = 256
-    const h = 96
+    const w = 256,
+      h = 96
     const c = document.createElement('canvas')
     c.width = w
     c.height = h
@@ -102,213 +119,228 @@ export class SprintScene extends Phaser.Scene {
     this.textures.addCanvas('pad', c)
   }
 
-  // ---------- background ----------
-  buildBackground() {
-    // sky gradient (fixed to screen)
-    const sky = this.add.graphics().setScrollFactor(0)
-    sky.fillGradientStyle(0x0a0e1a, 0x0a0e1a, 0x2a3a63, 0x3f5483, 1)
-    sky.fillRect(0, 0, DESIGN_W, GROUND_Y)
-
-    // stadium stands band (fixed)
-    const stands = this.add.graphics().setScrollFactor(0)
-    stands.fillStyle(0x121a30, 1)
-    stands.fillRect(0, GROUND_Y - 140, DESIGN_W, 140)
-    stands.fillStyle(0x0b1224, 1)
-    for (let x = 0; x < DESIGN_W + 40; x += 44) {
-      stands.fillRect(x, GROUND_Y - 160, 26, 26)
-    }
-
-    // crowd (parallax via manual tile scroll in update)
-    this.crowd = this.add
-      .tileSprite(0, GROUND_Y - 128, DESIGN_W, 104, 'crowd')
-      .setOrigin(0, 0)
-      .setScrollFactor(0)
-
-    // soft floodlight wash
-    const glow = this.add.graphics().setScrollFactor(0)
-    glow.fillStyle(0xffffff, 0.035)
-    glow.fillRect(0, 0, DESIGN_W, GROUND_Y)
-  }
-
-  // ---------- track ----------
+  // ---------- world-space track (built once) ----------
   buildTrack() {
-    const g = this.add.graphics()
-    const end = FINISH_X + 220
+    const g = this.add.graphics().setDepth(1)
+    const top = WORLD_GROUND_Y
+    const bottom = WORLD_GROUND_Y + 520 // tall enough for any screen
 
-    // tartan surface
     g.fillStyle(0x9c3d2e, 1)
-    g.fillRect(0, GROUND_Y, end, DESIGN_H - GROUND_Y)
-    // darker near edge
+    g.fillRect(0, top, WORLD_W, bottom - top)
     g.fillStyle(0x6e2a1f, 1)
-    g.fillRect(0, DESIGN_H - 34, end, 34)
+    g.fillRect(0, bottom - 40, WORLD_W, 40)
 
-    // lane perspective lines
     g.lineStyle(2, 0xb5523f, 0.5)
-    for (let y = GROUND_Y + 22; y < DESIGN_H - 30; y += 28) {
+    for (let y = top + 22; y < bottom - 30; y += 28) {
       g.beginPath()
       g.moveTo(0, y)
-      g.lineTo(end, y)
+      g.lineTo(WORLD_W, y)
       g.strokePath()
     }
 
-    // bright ground line
     g.lineStyle(3, 0xffffff, 0.45)
     g.beginPath()
-    g.moveTo(0, GROUND_Y)
-    g.lineTo(end, GROUND_Y)
+    g.moveTo(0, top)
+    g.lineTo(WORLD_W, top)
     g.strokePath()
 
-    // start line
     g.lineStyle(5, 0xffffff, 0.85)
     g.beginPath()
-    g.moveTo(START_X, GROUND_Y)
-    g.lineTo(START_X, GROUND_Y + 70)
+    g.moveTo(START_X, top)
+    g.lineTo(START_X, top + 70)
     g.strokePath()
 
-    // distance markers every 20m
     for (let m = 20; m < TRACK_M; m += 20) {
       const x = START_X + m * PX_PER_M
       g.lineStyle(2, 0xffffff, 0.22)
       g.beginPath()
-      g.moveTo(x, GROUND_Y)
-      g.lineTo(x, GROUND_Y + 60)
+      g.moveTo(x, top)
+      g.lineTo(x, top + 60)
       g.strokePath()
       this.add
-        .text(x, GROUND_Y - 6, m + 'm', {
+        .text(x, top - 6, m + 'm', {
           fontFamily: 'Arial',
           fontSize: '17px',
           fontStyle: '700',
           color: 'rgba(255,255,255,0.45)',
         })
         .setOrigin(0.5, 1)
+        .setDepth(1)
     }
   }
 
   buildFinishLine() {
     const fx = FINISH_X
-    // white line
-    this.add.rectangle(fx, GROUND_Y + 30, 7, 110, 0xffffff)
-    // checkered flag
-    const g = this.add.graphics()
-    const bw = 12
-    const cols = 4
-    const rows = 8
+    const g = this.add.graphics().setDepth(1)
+    this.add.rectangle(fx, WORLD_GROUND_Y + 30, 7, 110, 0xffffff).setDepth(1)
+    const bw = 12,
+      cols = 4,
+      rows = 8
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         g.fillStyle((r + c) % 2 ? 0x111111 : 0xffffff, 1)
-        g.fillRect(fx + c * bw - 24, GROUND_Y - 206 + r * bw, bw, bw)
+        g.fillRect(fx + c * bw - 24, WORLD_GROUND_Y - 206 + r * bw, bw, bw)
       }
     }
-    // FINISH label
     this.add
-      .text(fx, GROUND_Y - 214, 'FINISH', {
+      .text(fx, WORLD_GROUND_Y - 214, 'FINISH', {
         fontFamily: 'Arial',
         fontSize: '22px',
         fontStyle: '900',
         color: '#ffffff',
       })
       .setOrigin(0.5, 1)
+      .setDepth(1)
   }
 
-  // ---------- HUD ----------
-  buildHUD() {
+  // ---------- screen-space static layer (rebuilt on resize) ----------
+  buildStatic() {
+    this.layoutValues()
+    const W = this.W,
+      H = this.H,
+      gY = this.groundScreenY,
+      f = this.f
+    const s = this.staticObjs
+
+    // sky
+    const sky = this.add.graphics().setScrollFactor(0).setDepth(0)
+    sky.fillGradientStyle(0x0a0e1a, 0x0a0e1a, 0x2a3a63, 0x3f5483, 1)
+    sky.fillRect(0, 0, W, gY)
+    s.push(sky)
+
+    // stands
+    const standsTop = Math.max(0, gY - 140)
+    const stands = this.add.graphics().setScrollFactor(0).setDepth(0)
+    stands.fillStyle(0x121a30, 1)
+    stands.fillRect(0, standsTop, W, gY - standsTop)
+    stands.fillStyle(0x0b1224, 1)
+    for (let x = 0; x < W + 40; x += 44) stands.fillRect(x, standsTop - 20, 26, 26)
+    s.push(stands)
+
+    // crowd (parallax)
+    this.crowd = this.add
+      .tileSprite(0, gY - 128, W, 104, 'crowd')
+      .setOrigin(0, 0)
+      .setScrollFactor(0)
+      .setDepth(0)
+    s.push(this.crowd)
+
+    // floodlight wash
+    const glow = this.add.graphics().setScrollFactor(0).setDepth(0)
+    glow.fillStyle(0xffffff, 0.035)
+    glow.fillRect(0, 0, W, gY)
+    s.push(glow)
+
+    // ---- HUD ----
     this.timeText = this.add
-      .text(DESIGN_W / 2, 26, '0.00', {
+      .text(W / 2, H * 0.045, '0.00', {
         fontFamily: 'monospace',
-        fontSize: '46px',
+        fontSize: Math.round(46 * f) + 'px',
         fontStyle: '900',
         color: '#ffd23f',
       })
       .setOrigin(0.5, 0)
       .setScrollFactor(0)
       .setDepth(50)
+    s.push(this.timeText)
 
     this.distText = this.add
-      .text(28, 34, '0 m', {
+      .text(24, H * 0.06, '0 m', {
         fontFamily: 'Arial',
-        fontSize: '20px',
+        fontSize: Math.round(20 * f) + 'px',
         fontStyle: '700',
         color: '#e8ecf4',
       })
       .setScrollFactor(0)
       .setDepth(50)
+    s.push(this.distText)
 
-    this.add
-      .text(28, 58, '/ 100 m', {
+    const subDist = this.add
+      .text(24, H * 0.06 + Math.round(22 * f), '/ 100 m', {
         fontFamily: 'Arial',
-        fontSize: '13px',
+        fontSize: Math.round(13 * f) + 'px',
         color: '#8a93a8',
       })
       .setScrollFactor(0)
       .setDepth(50)
+    s.push(subDist)
 
     // speed bar
-    this.add
-      .rectangle(DESIGN_W - 28, 36, 226, 20, 0xffffff, 0.1)
+    const barW = Phaser.Math.Clamp(Math.round(W * 0.18), 140, 240)
+    const barH = Math.round(20 * f)
+    const barX = W - 24
+    const barY = H * 0.05
+    const barBg = this.add
+      .rectangle(barX, barY, barW, barH, 0xffffff, 0.1)
       .setOrigin(1, 0)
       .setScrollFactor(0)
       .setDepth(50)
+    s.push(barBg)
     this.speedBar = this.add
-      .rectangle(DESIGN_W - 28, 36, 0, 20, 0xffd23f)
+      .rectangle(barX, barY, 0, barH, 0xffd23f)
       .setOrigin(1, 0)
       .setScrollFactor(0)
       .setDepth(51)
-    this.add
-      .text(DESIGN_W - 28, 60, 'SPEED', {
+    s.push(this.speedBar)
+    this.speedBarMax = barW
+    const spdLbl = this.add
+      .text(barX, barY + barH + 4, 'SPEED', {
         fontFamily: 'Arial',
-        fontSize: '12px',
+        fontSize: Math.round(12 * f) + 'px',
         color: '#8a93a8',
         fontStyle: '700',
       })
       .setOrigin(1, 0)
       .setScrollFactor(0)
       .setDepth(50)
+    s.push(spdLbl)
+
+    // ---- control pads ----
+    this.buildPads(s, f)
   }
 
-  updateHUD() {
-    if (!this.athlete) return
-    this.timeText.setText(this.elapsed ? this.elapsed.toFixed(2) : '0.00')
-    const m = Math.max(0, Math.min(TRACK_M, Math.floor((this.athlete.x - START_X) / PX_PER_M)))
-    this.distText.setText(m + ' m')
-    this.speedBar.width = 226 * (this.athlete.speed / MAX_SPEED)
-  }
-
-  // ---------- controls ----------
-  buildControls() {
-    const padY = DESIGN_H - 20
-    const padSize = 240
+  buildPads(s, f) {
+    const W = this.W,
+      H = this.H
+    const ps = Phaser.Math.Clamp(Math.round(Math.min(W, H) * 0.34), 150, 240)
+    const m = 16
+    const padY = H - m - ps / 2
 
     const leftPad = this.add
-      .image(20 + padSize / 2, padY - padSize / 2, 'pad')
+      .image(m + ps / 2, padY, 'pad')
+      .setDisplaySize(ps, ps)
       .setScrollFactor(0)
       .setDepth(100)
       .setInteractive({ useHandCursor: true })
     const rightPad = this.add
-      .image(DESIGN_W - 20 - padSize / 2, padY - padSize / 2, 'pad')
+      .image(W - m - ps / 2, padY, 'pad')
+      .setDisplaySize(ps, ps)
       .setScrollFactor(0)
       .setDepth(100)
       .setInteractive({ useHandCursor: true })
+    s.push(leftPad, rightPad)
 
-    this.add
+    const lLbl = this.add
       .text(leftPad.x, leftPad.y, 'L', {
         fontFamily: 'Arial',
-        fontSize: '64px',
+        fontSize: Math.round(60 * f) + 'px',
         fontStyle: '900',
         color: 'rgba(255,255,255,0.5)',
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(101)
-    this.add
+    const rLbl = this.add
       .text(rightPad.x, rightPad.y, 'R', {
         fontFamily: 'Arial',
-        fontSize: '64px',
+        fontSize: Math.round(60 * f) + 'px',
         fontStyle: '900',
         color: 'rgba(255,255,255,0.5)',
       })
       .setOrigin(0.5)
       .setScrollFactor(0)
       .setDepth(101)
+    s.push(lLbl, rLbl)
 
     const press = (pad, foot) => {
       resumeAudio()
@@ -316,7 +348,6 @@ export class SprintScene extends Phaser.Scene {
       this.onTap(foot)
     }
     const release = (pad) => pad.setScale(1)
-
     leftPad.on('pointerdown', () => press(leftPad, 'L'))
     leftPad.on('pointerup', () => release(leftPad))
     leftPad.on('pointerout', () => release(leftPad))
@@ -324,23 +355,31 @@ export class SprintScene extends Phaser.Scene {
     rightPad.on('pointerup', () => release(rightPad))
     rightPad.on('pointerout', () => release(rightPad))
 
-    // keyboard (desktop testing)
-    const kb = this.input.keyboard
-    if (kb) {
-      kb.on('keydown-A', () => this.onTap('L'))
-      kb.on('keydown-D', () => this.onTap('R'))
-      kb.on('keydown-LEFT', () => this.onTap('L'))
-      kb.on('keydown-RIGHT', () => this.onTap('R'))
-    }
-
     this.leftPad = leftPad
     this.rightPad = rightPad
   }
 
-  // ---------- countdown ----------
+  destroyStatic() {
+    if (this.staticObjs) {
+      this.staticObjs.forEach((o) => o && o.destroy && o.destroy())
+      this.staticObjs = []
+    }
+  }
+
+  addKeyboard() {
+    if (this.kbDone) return
+    this.kbDone = true
+    const kb = this.input.keyboard
+    if (!kb) return
+    kb.on('keydown-A', () => this.onTap('L'))
+    kb.on('keydown-D', () => this.onTap('R'))
+    kb.on('keydown-LEFT', () => this.onTap('L'))
+    kb.on('keydown-RIGHT', () => this.onTap('R'))
+  }
+
   buildCountdown() {
     this.countdownText = this.add
-      .text(DESIGN_W / 2, DESIGN_H * 0.4, '', {
+      .text(this.W / 2, this.H * 0.4, '', {
         fontFamily: 'Arial',
         fontSize: '86px',
         fontStyle: '900',
@@ -352,6 +391,18 @@ export class SprintScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setDepth(150)
       .setVisible(false)
+  }
+
+  repositionCountdown() {
+    if (this.countdownText) this.countdownText.setPosition(this.W / 2, this.H * 0.4)
+  }
+
+  handleResize(gameSize) {
+    this.W = gameSize.width
+    this.H = gameSize.height
+    this.destroyStatic()
+    this.buildStatic()
+    this.repositionCountdown()
   }
 
   showCountdown(msg, color = '#ffffff') {
@@ -372,13 +423,12 @@ export class SprintScene extends Phaser.Scene {
     this.timers.push(t)
     return t
   }
-
   clearTimers() {
     this.timers.forEach((t) => t.remove())
     this.timers = []
   }
 
-  // ---------- avatar load + race start ----------
+  // ---------- avatar + start ----------
   loadAvatarThenStart() {
     let jersey = { color: '#e63946', alt: '#9d1b2a' }
     try {
@@ -390,10 +440,10 @@ export class SprintScene extends Phaser.Scene {
     this.jersey = jersey
 
     const build = () => {
-      this.athlete = new Athlete(this, START_X, GROUND_Y, 'head', jersey)
+      this.athlete = new Athlete(this, START_X, WORLD_GROUND_Y, 'head', jersey)
       this.athlete.setPose('marks')
-      // place camera so the athlete sits at the left third
       this.cameras.main.scrollX = 0
+      this.cameras.main.scrollY = this.scrollY
       this.startCountdown()
     }
 
@@ -421,7 +471,6 @@ export class SprintScene extends Phaser.Scene {
       this.athlete.x = START_X
       this.athlete.setPose('marks')
     }
-
     this.showCountdown('ON YOUR MARKS')
     beep(520)
     this.addTimer(1200, () => {
@@ -451,18 +500,13 @@ export class SprintScene extends Phaser.Scene {
     this.addTimer(1500, () => this.startCountdown())
   }
 
-  // ---------- tap handling ----------
   onTap(foot) {
-    if (!this.athlete) return
-    if (this.finished) return
-
+    if (!this.athlete || this.finished) return
     if (!this.raceActive) {
-      // tapped before the gun
       this.falseStart()
       return
     }
     if (this.athlete.stumbleLock > 0) return
-
     if (this.lastFoot === null) {
       this.lastFoot = foot
       this.athlete.applyStride()
@@ -470,19 +514,16 @@ export class SprintScene extends Phaser.Scene {
       return
     }
     if (foot !== this.lastFoot) {
-      // correct alternation
       this.lastFoot = foot
       this.athlete.applyStride()
       tick()
     } else {
-      // same foot twice -> stumble
       this.athlete.applyStumble()
       this.lastFoot = foot
       stumbleSnd()
     }
   }
 
-  // ---------- finish ----------
   finish() {
     this.finished = true
     this.raceActive = false
@@ -507,7 +548,6 @@ export class SprintScene extends Phaser.Scene {
       if (this.athlete.speed > MAX_SPEED) this.athlete.speed = MAX_SPEED
       this.athlete.x += this.athlete.speed * dt
       this.elapsed = (time - this.startTime) / 1000
-
       if (this.athlete.x >= FINISH_X) {
         this.athlete.x = FINISH_X
         this.finish()
@@ -517,17 +557,22 @@ export class SprintScene extends Phaser.Scene {
     this.athlete.updateAnim(dt)
 
     // pin athlete on screen, scroll the world
-    let scroll = this.athlete.x - ATHLETE_SCREEN_X
-    const maxScroll = FINISH_X + 220 - DESIGN_W
-    scroll = Phaser.Math.Clamp(scroll, 0, maxScroll)
+    const maxScroll = Math.max(0, WORLD_W - this.W)
+    let scroll = Phaser.Math.Clamp(this.athlete.x - this.athleteScreenX, 0, maxScroll)
     this.cameras.main.scrollX = scroll
+    this.cameras.main.scrollY = this.scrollY
 
-    // shadow follows
     this.shadow.x = this.athlete.x
-
-    // parallax crowd
-    if (this.crowd) this.crowd.tilePositionX = this.cameras.main.scrollX * 0.85
+    if (this.crowd) this.crowd.tilePositionX = scroll * 0.85
 
     this.updateHUD()
+  }
+
+  updateHUD() {
+    if (!this.timeText) return
+    this.timeText.setText(this.elapsed ? this.elapsed.toFixed(2) : '0.00')
+    const m = Math.max(0, Math.min(TRACK_M, Math.floor((this.athlete.x - START_X) / PX_PER_M)))
+    this.distText.setText(m + ' m')
+    this.speedBar.width = this.speedBarMax * (this.athlete.speed / MAX_SPEED)
   }
 }

@@ -8,10 +8,12 @@ export function renderReady(container, nav) {
   if (hasAvatar && hasHead) {
     sub = 'Looking sharp. Take it to the track.'
     btnLabel = 'Practice Sprint'
-    btnAction = () => nav.goto('race')
+    btnAction = () => {
+      // user gesture → go fullscreen + lock landscape, then load the race
+      window.__photoGames.enterFullscreen().finally(() => nav.goto('race'))
+    }
     btnDisabled = ''
   } else if (hasAvatar && !hasHead) {
-    // older avatar saved before the race needed a face crop — re-save it.
     sub = 'Quick update needed to get your face on the track.'
     btnLabel = 'Update avatar'
     btnAction = () => nav.goto('avatar')

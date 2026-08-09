@@ -31,12 +31,14 @@ function goto(name, params = {}) {
   render(app, { goto }, params)
 }
 
-// Try to lock landscape orientation if the browser allows it.
-async function tryLockLandscape() {
+// Enter real browser fullscreen + lock landscape on a user gesture.
+// Hides mobile browser chrome (URL bar / status bar) for an immersive game.
+async function enterFullscreen() {
+  const el = document.documentElement
   try {
-    await document.documentElement.requestFullscreen?.()
+    if (!document.fullscreenElement && el.requestFullscreen) await el.requestFullscreen()
   } catch (_) {
-    /* fullscreen may need a user gesture — ignore failure */
+    /* fullscreen may be blocked — ignore, game still runs */
   }
   try {
     await screen.orientation?.lock?.('landscape')
@@ -45,7 +47,6 @@ async function tryLockLandscape() {
   }
 }
 
-// Expose for screens that want to lock on a user gesture (e.g. entering a race)
-window.__photoGames = { goto, tryLockLandscape }
+window.__photoGames = { goto, enterFullscreen }
 
 goto('welcome')

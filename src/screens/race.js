@@ -17,10 +17,11 @@ export function renderRace(container, nav) {
     parent: root,
     backgroundColor: '#0a0e1a',
     scale: {
-      mode: Phaser.Scale.FIT,
-      autoCenter: Phaser.Scale.CENTER_BOTH,
-      width: 1280,
-      height: 720,
+      // RESIZE = canvas fills the parent exactly, no letterbox bars.
+      mode: Phaser.Scale.RESIZE,
+      parent: root,
+      width: root.clientWidth || window.innerWidth,
+      height: root.clientHeight || window.innerHeight,
     },
     scene: [SprintScene],
   })
