@@ -4,3 +4,6 @@ dist
 *.log
 .env
 .env.*
+
+# Keep workflow on disk but don't track it (token lacks workflow scope)
+.github/workflows/
